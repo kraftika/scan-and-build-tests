@@ -9,6 +9,7 @@ export interface CrawlOptions {
   maxPages?: number;
   maxDepth?: number;
   timeoutMs?: number;
+  storageState?: string; // path to a saved Playwright storage state JSON file
 }
 
 const USER_AGENT = 'scan-and-build-tests/1.0';
@@ -30,6 +31,7 @@ export async function crawl(startUrl: string, options: CrawlOptions = {}): Promi
   const context = await browser.newContext({
     userAgent: USER_AGENT,
     extraHTTPHeaders: { 'User-Agent': USER_AGENT },
+    ...(options.storageState ? { storageState: options.storageState } : {}),
   });
 
   try {

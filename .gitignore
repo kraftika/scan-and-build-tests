@@ -45,6 +45,9 @@ next-env.d.ts
 # local dev output
 /output
 
+# saved browser sessions (contain cookies — never commit)
+/.sessions
+
 # playwright
 /playwright-report
 /test-results
