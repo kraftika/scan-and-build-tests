@@ -1,3 +1,6 @@
+import { loadEnv } from '../src/lib/utils/env';
+loadEnv();
+
 import { chromium } from 'playwright';
 import { crawl } from '../src/lib/crawler/index';
 import { generateTestSuite } from '../src/lib/generator/index';

@@ -12,7 +12,9 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "crawl": "node --env-file-if-exists=.env.local --import=tsx/esm scripts/crawl.ts"
+    "crawl": "tsx scripts/crawl.ts",
+    "record": "tsx scripts/record.ts",
+    "generate": "tsx scripts/generate.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
