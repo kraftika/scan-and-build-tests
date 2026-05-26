@@ -150,8 +150,12 @@ async function main() {
 
   const events: RecordedEvent[] = [];
 
-  const browser = await chromium.launch({ headless: false });
+  const browser = await chromium.launch({
+    headless: false,
+    args: ['--start-maximized'],
+  });
   const context = await browser.newContext({
+    viewport: null,
     ...(hasSession ? { storageState: session } : {}),
   });
 
