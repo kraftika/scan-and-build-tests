@@ -64,6 +64,14 @@ function eventToCode(event: RecordedEvent): string {
     case 'fill':
       if (!event.selector || !event.value) return '';
       return `await page.locator('${escape(event.selector)}').fill('${escape(event.value)}');`;
+    case 'select':
+      // Native <select>: use selectOption; custom dropdown: click the option
+      if (event.value && event.selector?.startsWith('select')) {
+        return `await page.locator('${escape(event.selector)}').selectOption({ value: '${escape(event.value)}' });`;
+      }
+      if (event.text) return `await page.getByText('${escape(event.text)}').first().click();`;
+      if (event.selector) return `await page.locator('${escape(event.selector)}').first().click();`;
+      return '';
     case 'submit':
       return `await page.locator('${event.selector ?? "form"}').evaluate(f => f.requestSubmit());`;
     default:

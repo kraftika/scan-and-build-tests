@@ -42,12 +42,30 @@ const RECORDER_SCRIPT = `
   }
 
   document.addEventListener('click', function(e) {
-    const el = e.target.closest('a, button, [role="button"], [role="link"], input[type="submit"], input[type="button"]');
+    const el = e.target.closest(
+      'a, button, [role="button"], [role="link"], [role="option"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="tab"], input[type="submit"], input[type="button"]'
+    );
     if (!el) return;
+    const isOption = ['option','menuitem','menuitemradio','menuitemcheckbox'].includes(el.getAttribute('role') || '');
     window.__recordEvent({
-      type: 'click',
+      type: isOption ? 'select' : 'click',
       selector: bestSelector(el),
       text: (el.innerText || el.value || '').trim().slice(0, 80),
+      url: window.location.href,
+      timestamp: Date.now(),
+    });
+  }, true);
+
+  // Native <select> — record chosen option text alongside value
+  document.addEventListener('change', function(e) {
+    var el = e.target;
+    if (el.tagName !== 'SELECT') return;
+    var selected = el.options[el.selectedIndex];
+    window.__recordEvent({
+      type: 'select',
+      selector: bestSelector(el),
+      value: el.value,
+      text: selected ? selected.text : el.value,
       url: window.location.href,
       timestamp: Date.now(),
     });
@@ -150,6 +168,8 @@ async function main() {
     events.push(event);
     const label = event.type === 'fill'
       ? `${event.selector} = "${event.value}"`
+      : event.type === 'select'
+      ? `${event.selector} → "${event.text ?? event.value}"`
       : event.text ? `"${event.text}"` : event.selector ?? '';
     console.log(`  [${event.type.padEnd(8)}] ${label}`);
   });

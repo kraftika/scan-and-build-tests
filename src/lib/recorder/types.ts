@@ -1,4 +1,4 @@
-export type RecordedEventType = 'navigate' | 'click' | 'fill' | 'submit';
+export type RecordedEventType = 'navigate' | 'click' | 'fill' | 'select' | 'submit';
 
 export interface RecordedEvent {
   type: RecordedEventType;
