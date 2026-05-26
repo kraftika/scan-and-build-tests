@@ -41,16 +41,30 @@ const RECORDER_SCRIPT = `
     return el.tagName.toLowerCase();
   }
 
+  var INTERACTIVE = 'a, button, [role="button"], [role="link"], [role="option"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="tab"], input[type="submit"], input[type="button"]';
+  var OPTION_ROLES = ['option','menuitem','menuitemradio','menuitemcheckbox'];
+  var SKIP_TAGS = ['HTML','BODY','MAIN','HEADER','FOOTER','SECTION','ARTICLE','NAV','ASIDE'];
+
   document.addEventListener('click', function(e) {
-    const el = e.target.closest(
-      'a, button, [role="button"], [role="link"], [role="option"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="tab"], input[type="submit"], input[type="button"]'
-    );
-    if (!el) return;
-    const isOption = ['option','menuitem','menuitemradio','menuitemcheckbox'].includes(el.getAttribute('role') || '');
+    // 1. Prefer the nearest known interactive ancestor
+    var el = e.target.closest(INTERACTIVE);
+
+    // 2. Fall back to the actual clicked element if it has useful text or id
+    if (!el) {
+      var t = e.target;
+      var text = (t.innerText || t.value || t.getAttribute('aria-label') || '').trim();
+      if (!text && !t.id) return; // nothing to identify — skip
+      if (SKIP_TAGS.includes(t.tagName)) return;
+      el = t;
+    }
+
+    var isOption = OPTION_ROLES.includes(el.getAttribute('role') || '');
+    var text = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().slice(0, 80);
+
     window.__recordEvent({
       type: isOption ? 'select' : 'click',
       selector: bestSelector(el),
-      text: (el.innerText || el.value || '').trim().slice(0, 80),
+      text: text,
       url: window.location.href,
       timestamp: Date.now(),
     });
