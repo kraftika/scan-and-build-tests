@@ -183,11 +183,21 @@ async function main() {
 
   const page = await context.newPage();
 
-  // Record navigation events when URL changes
+  // Record navigation events + DOM snapshot when URL changes
   page.on('framenavigated', (frame) => {
     if (frame !== page.mainFrame()) return;
-    events.push({ type: 'navigate', url: frame.url(), timestamp: Date.now() });
-    console.log(`  [navigate ] ${frame.url()}`);
+    const url = frame.url();
+    const navEvent: RecordedEvent = { type: 'navigate', url, timestamp: Date.now() };
+    events.push(navEvent);
+    console.log(`  [navigate ] ${url}`);
+
+    // Capture DOM snapshot after page settles (non-blocking)
+    page.waitForLoadState('domcontentloaded').then(() =>
+      page.locator('html').ariaSnapshot()
+    ).then((snapshot) => {
+      navEvent.domSnapshot = snapshot;
+      console.log(`  [dom      ] ${snapshot.split('\n').length} nodes captured`);
+    }).catch(() => { /* snapshot failed — skip silently */ });
   });
 
   console.log('\n─────────────────────────────────────────');

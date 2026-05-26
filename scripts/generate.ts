@@ -89,12 +89,20 @@ async function generateWithClaude(recording: Recording): Promise<string> {
   const { startUrl, events } = recording;
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+  // Build a page map: url → domSnapshot for Claude context
+  const pageSnapshots = events
+    .filter((e) => e.type === 'navigate' && e.domSnapshot)
+    .map((e) => `### ${e.url}\n${e.domSnapshot}`)
+    .join('\n\n');
+
   const prompt = `You are a Playwright test engineer. A user navigated a web application and recorded their interactions.
 Convert these interactions into meaningful Playwright test cases.
 
 Start URL: ${startUrl}
+
+${pageSnapshots ? `DOM structure of visited pages (use this to write precise selectors and assertions):\n${pageSnapshots}\n` : ''}
 Recorded events:
-${JSON.stringify(events, null, 2)}
+${JSON.stringify(events.map(({ domSnapshot: _, ...e }) => e), null, 2)}
 
 Rules:
 - Group related interactions into logical test cases (e.g. "user creates a project", "user fills login form")

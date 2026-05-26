@@ -7,6 +7,7 @@ export interface RecordedEvent {
   selector?: string;
   text?: string;
   value?: string;
+  domSnapshot?: string; // ARIA tree captured on navigate events
 }
 
 export interface Recording {
