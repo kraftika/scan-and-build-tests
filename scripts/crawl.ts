@@ -1,7 +1,8 @@
 import { chromium } from 'playwright';
 import { crawl } from '../src/lib/crawler/index';
+import { generateTestSuite } from '../src/lib/generator/index';
 import { sanitizeUrl } from '../src/lib/utils/sanitize';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { createInterface } from 'readline';
 
@@ -81,6 +82,19 @@ async function main() {
   result.pages.forEach((p, i) => {
     console.log(`  [${i + 1}] ${p.url} — ${p.links.length} links, ${p.forms.length} forms`);
   });
+
+  console.log('\nGenerating Playwright tests via Claude API…');
+  const suite = await generateTestSuite(result.pages);
+
+  const outDir = join(process.cwd(), 'output');
+  mkdirSync(outDir, { recursive: true });
+  for (const [filename, content] of Object.entries(suite)) {
+    const dest = join(outDir, filename);
+    writeFileSync(dest, content, 'utf8');
+    console.log(`  ✓ ${dest}`);
+  }
+  console.log(`\nDone — ${Object.keys(suite).length} test files written to ./output/`);
+  console.log('Run them with: npx playwright test --config output/');
 }
 
 main().catch((err) => {

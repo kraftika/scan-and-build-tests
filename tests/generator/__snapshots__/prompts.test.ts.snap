@@ -1,0 +1,14 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildPagePrompt > snapshot: prompt shape is stable 1`] = `
+[
+  {
+    "contentTypes": [
+      "text",
+      "image",
+      "text",
+    ],
+    "role": "user",
+  },
+]
+`;
