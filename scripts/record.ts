@@ -53,13 +53,38 @@ const RECORDER_SCRIPT = `
     });
   }, true);
 
-  document.addEventListener('change', function(e) {
-    const el = e.target;
+  // Debounced input tracking — captures final typed value even without blur
+  var _inputTimers = {};
+  document.addEventListener('input', function(e) {
+    var el = e.target;
     if (!['INPUT','SELECT','TEXTAREA'].includes(el.tagName)) return;
     if (['password','hidden'].includes(el.type)) return;
+    var key = bestSelector(el);
+    clearTimeout(_inputTimers[key]);
+    _inputTimers[key] = setTimeout(function() {
+      delete _inputTimers[key];
+      window.__recordEvent({
+        type: 'fill',
+        selector: key,
+        value: el.value.slice(0, 100),
+        url: window.location.href,
+        timestamp: Date.now(),
+      });
+    }, 600);
+  }, true);
+
+  // Also capture on blur to catch any missed final values
+  document.addEventListener('blur', function(e) {
+    var el = e.target;
+    if (!['INPUT','SELECT','TEXTAREA'].includes(el.tagName)) return;
+    if (['password','hidden'].includes(el.type)) return;
+    if (!el.value) return;
+    var key = bestSelector(el);
+    clearTimeout(_inputTimers[key]);
+    delete _inputTimers[key];
     window.__recordEvent({
       type: 'fill',
-      selector: bestSelector(el),
+      selector: key,
       value: el.value.slice(0, 100),
       url: window.location.href,
       timestamp: Date.now(),
@@ -114,8 +139,18 @@ async function main() {
 
   // Expose a function the injected script can call to record events
   await context.exposeFunction('__recordEvent', (event: RecordedEvent) => {
+    // For fill events: replace the previous entry for the same selector+url
+    // so rapid typing produces one final-value entry, not dozens
+    if (event.type === 'fill') {
+      const prev = events.findLastIndex(
+        (e) => e.type === 'fill' && e.selector === event.selector && e.url === event.url,
+      );
+      if (prev !== -1) { events.splice(prev, 1); }
+    }
     events.push(event);
-    const label = event.text ? `"${event.text}"` : event.selector ?? '';
+    const label = event.type === 'fill'
+      ? `${event.selector} = "${event.value}"`
+      : event.text ? `"${event.text}"` : event.selector ?? '';
     console.log(`  [${event.type.padEnd(8)}] ${label}`);
   });
 
