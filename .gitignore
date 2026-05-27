@@ -48,6 +48,9 @@ next-env.d.ts
 # saved browser sessions (contain cookies — never commit)
 /.sessions
 
+# interaction recordings
+/.recordings
+
 # playwright
 /playwright-report
 /test-results

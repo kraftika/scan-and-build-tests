@@ -41,33 +41,63 @@ const RECORDER_SCRIPT = `
     return el.tagName.toLowerCase();
   }
 
-  var INTERACTIVE = 'a, button, [role="button"], [role="link"], [role="option"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="tab"], input[type="submit"], input[type="button"]';
+  var INTERACTIVE = 'a, button, [role="button"], [role="link"], [role="option"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="tab"], input[type="submit"], input[type="button"], [aria-haspopup], [aria-expanded]';
   var OPTION_ROLES = ['option','menuitem','menuitemradio','menuitemcheckbox'];
   var SKIP_TAGS = ['HTML','BODY','MAIN','HEADER','FOOTER','SECTION','ARTICLE','NAV','ASIDE'];
+  var _lastPopoverTrigger = null;
+  var _lastPopoverEventTs = 0;
+  var _pointerdownSel = null;
+  var _pointerdownTs = 0;
 
-  document.addEventListener('click', function(e) {
-    // 1. Prefer the nearest known interactive ancestor
-    var el = e.target.closest(INTERACTIVE);
-
-    // 2. Fall back to the actual clicked element if it has useful text or id
+  function _resolveEl(target) {
+    var el = target.closest(INTERACTIVE);
     if (!el) {
-      var t = e.target;
-      var text = (t.innerText || t.value || t.getAttribute('aria-label') || '').trim();
-      if (!text && !t.id) return; // nothing to identify — skip
-      if (SKIP_TAGS.includes(t.tagName)) return;
-      el = t;
+      var text = (target.innerText || target.value || target.getAttribute('aria-label') || '').trim();
+      var hasPopupAttr = target.hasAttribute('aria-haspopup') || target.hasAttribute('aria-expanded');
+      if (!text && !target.id && !hasPopupAttr) return null;
+      if (SKIP_TAGS.includes(target.tagName)) return null;
+      el = target;
     }
+    return el;
+  }
 
+  function _emitClick(el) {
     var isOption = OPTION_ROLES.includes(el.getAttribute('role') || '');
+    var sel = bestSelector(el);
     var text = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().slice(0, 80);
-
+    if (el.hasAttribute('aria-haspopup') || el.hasAttribute('aria-expanded') || el.hasAttribute('aria-controls')) {
+      _lastPopoverTrigger = { selector: sel, ts: Date.now() };
+    }
     window.__recordEvent({
       type: isOption ? 'select' : 'click',
-      selector: bestSelector(el),
+      selector: sel,
       text: text,
       url: window.location.href,
       timestamp: Date.now(),
     });
+    return sel;
+  }
+
+  // pointerdown fires before the library opens the popper, so _lastPopoverTrigger is set
+  // before the MutationObserver sees the new portal node.
+  // Also records the click in case the library calls stopImmediatePropagation and 'click' never fires.
+  document.addEventListener('pointerdown', function(e) {
+    var el = _resolveEl(e.target);
+    if (!el) return;
+    _pointerdownSel = _emitClick(el);
+    _pointerdownTs = Date.now();
+  }, true);
+
+  // click handler — skip if pointerdown already recorded the same element within 400ms
+  document.addEventListener('click', function(e) {
+    var el = _resolveEl(e.target);
+    if (!el) return;
+    var sel = bestSelector(el);
+    if (sel === _pointerdownSel && Date.now() - _pointerdownTs < 400) {
+      _pointerdownSel = null;
+      return; // already recorded via pointerdown
+    }
+    _emitClick(el);
   }, true);
 
   // Native <select> — record chosen option text alongside value
@@ -132,6 +162,124 @@ const RECORDER_SCRIPT = `
       timestamp: Date.now(),
     });
   }, true);
+
+  // Hover capture — fires when cursor enters an element that has a title attribute
+  // or an aria-describedby pointing to a tooltip, and when role="tooltip" nodes appear
+  var _hoverTimer = null;
+  document.addEventListener('mouseover', function(e) {
+    var el = e.target;
+    var title = el.getAttribute('title') || el.getAttribute('aria-label');
+    var describedBy = el.getAttribute('aria-describedby');
+    if (!title && !describedBy) return;
+    clearTimeout(_hoverTimer);
+    _hoverTimer = setTimeout(function() {
+      window.__recordEvent({
+        type: 'hover',
+        selector: bestSelector(el),
+        text: title || describedBy,
+        url: window.location.href,
+        timestamp: Date.now(),
+      });
+    }, 400);
+  }, true);
+
+  document.addEventListener('mouseout', function() {
+    clearTimeout(_hoverTimer);
+  }, true);
+
+  // aria-expanded observer — inline panels (accordion, disclosure)
+  // Sets _lastPopoverTrigger so the portal observer can link back to it
+  new MutationObserver(function(mutations) {
+    mutations.forEach(function(m) {
+      if (m.type !== 'attributes') return;
+      var el = m.target;
+      if (el.getAttribute('aria-expanded') !== 'true') return;
+      _lastPopoverTrigger = { selector: bestSelector(el), ts: Date.now() };
+      if (Date.now() - _lastPopoverEventTs < 200) return; // dedupe with portal observer
+      _lastPopoverEventTs = Date.now();
+      window.__recordEvent({
+        type: 'popover',
+        selector: bestSelector(el),
+        text: (el.innerText || el.getAttribute('aria-label') || el.getAttribute('aria-controls') || '').trim().slice(0, 80),
+        url: window.location.href,
+        timestamp: Date.now(),
+      });
+    });
+  }).observe(document.body, { attributes: true, attributeFilter: ['aria-expanded'], subtree: true });
+
+  // Portal observer — watches direct children of <body> and <html> only (no subtree).
+  // Any popover library (Popper.js, Floating UI, Radix, MUI, etc.) appends panels there.
+  // No role requirement — a plain <div> portal is detected by position in the tree + visibility.
+  var _seenPopovers = new WeakSet();
+  function _checkPortal(node) {
+    if (node.nodeType !== 1) return;
+    var parent = node.parentElement;
+    if (parent !== document.body && parent !== document.documentElement) return;
+    if (_seenPopovers.has(node)) return;
+    // Delay one tick so the browser applies inline styles before we check visibility
+    setTimeout(function() {
+      try {
+        var cs = window.getComputedStyle(node);
+        if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return;
+      } catch(ignore) { return; }
+      if (_seenPopovers.has(node)) return;
+      _seenPopovers.add(node);
+      if (Date.now() - _lastPopoverEventTs < 300) return; // already recorded via aria-expanded
+      _lastPopoverEventTs = Date.now();
+      var triggerSelector = (_lastPopoverTrigger && Date.now() - _lastPopoverTrigger.ts < 2000)
+        ? _lastPopoverTrigger.selector : null;
+      var role = node.getAttribute('role') || 'popover';
+      var label = (node.getAttribute('aria-label') || role).slice(0, 80);
+      window.__recordEvent({
+        type: 'popover',
+        selector: triggerSelector || ('[role="' + role + '"]'),
+        text: label,
+        value: role,
+        url: window.location.href,
+        timestamp: Date.now(),
+      });
+    }, 50);
+  }
+  // Two separate observers — one for <html> direct children, one for <body> direct children.
+  // document.body can be null when addInitScript runs, so guard before observing it.
+  function _watchPortals(root) {
+    new MutationObserver(function(mutations) {
+      mutations.forEach(function(m) { m.addedNodes.forEach(_checkPortal); });
+    }).observe(root, { childList: true });
+  }
+  _watchPortals(document.documentElement);
+  if (document.body) {
+    _watchPortals(document.body);
+  } else {
+    document.addEventListener('DOMContentLoaded', function() { _watchPortals(document.body); });
+  }
+
+  // MutationObserver — records tooltip text when role="tooltip" elements appear in the DOM
+  var _seenTooltips = new WeakSet();
+  new MutationObserver(function(mutations) {
+    mutations.forEach(function(m) {
+      m.addedNodes.forEach(function(node) {
+        if (node.nodeType !== 1) return;
+        var tooltip = node.getAttribute && node.getAttribute('role') === 'tooltip'
+          ? node
+          : node.querySelector && node.querySelector('[role="tooltip"]');
+        if (!tooltip || _seenTooltips.has(tooltip)) return;
+        _seenTooltips.add(tooltip);
+        var text = (tooltip.innerText || tooltip.textContent || '').trim().slice(0, 120);
+        if (!text) return;
+        // Find the element that triggered the tooltip via aria-describedby
+        var id = tooltip.id;
+        var trigger = id ? document.querySelector('[aria-describedby="' + id + '"]') : null;
+        window.__recordEvent({
+          type: 'hover',
+          selector: trigger ? bestSelector(trigger) : '[role="tooltip"]',
+          text: text,
+          url: window.location.href,
+          timestamp: Date.now(),
+        });
+      });
+    });
+  }).observe(document.body, { childList: true, subtree: true });
 })();
 `;
 
